@@ -5,4 +5,4 @@ BOT_TOKEN = "8952353448:AAHWPN_ViQI4xqtQUUyvFt-kjPC4uDDJNV8"
 ADMIN_IDS = [7857605443, 7867520461]
 
 # 数据库文件路径（PythonAnywhere 上固定的）
-DB_PATH = '/home/gsyxyc/mysite/videos.db'
+DB_PATH = 'videos.db'
