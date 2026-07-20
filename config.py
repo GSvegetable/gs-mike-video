@@ -1,8 +1,7 @@
-# 你的麦克机器人 Token
-BOT_TOKEN = "8952353448:AAHWPN_ViQI4xqtQUUyvFt-kjPC4uDDJNV8"
+import os
 
-# 你的数字 ID（必须是这两个其中之一，才能上传视频）
-ADMIN_IDS = [7857605443, 7867520461]
+# 从 Railway 环境变量读取
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-# 数据库文件路径（PythonAnywhere 上固定的）
-DB_PATH = 'videos.db'
+# 你的开发者数字 ID（私聊只有你能用，群里必须有你当管理员）
+ADMIN_IDS = [7857605443]
