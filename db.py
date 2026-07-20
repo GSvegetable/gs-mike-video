@@ -1,11 +1,10 @@
 import sqlite3
-import os
-from config import DB_PATH
+
+DB_PATH = 'videos.db'
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    # 创建一张表，存视频的 ID、名字、和电报的文件 ID
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS videos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
