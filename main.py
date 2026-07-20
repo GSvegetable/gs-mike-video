@@ -1,4 +1,5 @@
 import threading
+import asyncio
 import logging
 import os
 from flask import Flask
@@ -10,7 +11,6 @@ from db import init_db, add_video, get_video_by_title, get_video_by_id
 
 init_db()
 
-# 保活网页
 app = Flask(__name__)
 @app.route('/')
 def home():
@@ -22,28 +22,29 @@ def run_flask():
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# ================= 权限校验逻辑（与香菜一致） =================
+# ================= 全新权限校验 =================
 async def check_chat_permission(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     chat = update.effective_chat
     user_id = update.effective_user.id
 
-    # 1. 私聊：只有开发者本人才能用
+    # 1. 私聊：只有开发者（你）能通过
     if chat.type == "private":
         if user_id in ADMIN_IDS:
             return True
-        await update.message.reply_text("⚠️ 此功能只能在群组内使用，请先将机器人拉入群组。")
+        await update.message.reply_text("⚠️ 机器人未开放私聊功能。如需使用，请将机器人拉入你所在的群组。")
         return False
 
-    # 2. 群聊：必须我的号（7857605443）在这个群里是管理员
+    # 2. 群聊：必须你（7857605443）在这个群是管理员
     is_dev_admin = False
-    for dev_id in ADMIN_IDS:
-        try:
+    try:
+        for dev_id in ADMIN_IDS:
             member = await context.bot.get_chat_member(chat_id=chat.id, user_id=dev_id)
             if member.status in ['creator', 'administrator']:
                 is_dev_admin = True
                 break
-        except:
-            pass
+    except Exception:
+        # 如果连你的账号都查不到（说明你被踢了），直接返回无权限
+        is_dev_admin = False
 
     if not is_dev_admin:
         await update.message.reply_text("❌ 该群组无权限。请确保开发者账号在此群组中是管理员。")
@@ -51,7 +52,7 @@ async def check_chat_permission(update: Update, context: ContextTypes.DEFAULT_TY
 
     return True
 
-# ================= 机器人核心功能（保持不变） =================
+# ================= 机器人核心功能 =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_chat_permission(update, context):
         return
@@ -62,7 +63,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file_id = get_video_by_id(video_id)
         if file_id:
             await update.message.reply_text("📹 正在为您发送视频...")
-            await context.bot.send_video(chat_id=update.effective_chat.id, video=file_id)
+            try:
+                # 加入 60 秒超时限制，防止卡半小时
+                await asyncio.wait_for(
+                    context.bot.send_video(chat_id=update.effective_chat.id, video=file_id),
+                    timeout=60.0
+                )
+            except asyncio.TimeoutError:
+                await update.message.reply_text("❌ 发送视频超时（网络拥堵），请稍后再次尝试发送电影名。")
             return
     await update.message.reply_text("你好！我是麦克视频库。发送电影名字即可获取视频。")
 
@@ -89,18 +97,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
     text = update.message.text
+    chat_id = update.effective_chat.id
 
-    # 普通用户搜电影
-    if user_id not in ADMIN_IDS:
-        file_id = get_video_by_title(text)
-        if file_id:
-            await update.message.reply_text("📹 正在为您发送视频...")
-            await context.bot.send_video(chat_id=update.effective_chat.id, video=file_id)
-        else:
-            await update.message.reply_text("❌ 没找到这个电影，请检查名字是否正确。")
-        return
-
-    # 管理员上传视频
+    # 管理员上传/接收视频
     if update.message.video and 'pending_upload' in context.user_data:
         title = context.user_data.pop('pending_upload')
         file_id = update.message.video.file_id
@@ -113,14 +112,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # 管理员查电影
-    if user_id in ADMIN_IDS:
-        file_id = get_video_by_title(text)
-        if file_id:
-            await update.message.reply_text("📹 正在为您发送视频...")
-            await context.bot.send_video(chat_id=chat_id, video=file_id)
-        else:
-            await update.message.reply_text("❌ 库里没有这个电影，请输入 `/upload 名字` 来添加吧。")
+    # 普通用户搜索视频（只要你有权限，群里任何人都可以搜）
+    file_id = get_video_by_title(text)
+    if file_id:
+        await update.message.reply_text("📹 正在为您发送视频...")
+        try:
+            await asyncio.wait_for(
+                context.bot.send_video(chat_id=chat_id, video=file_id),
+                timeout=60.0
+            )
+        except asyncio.TimeoutError:
+            await update.message.reply_text("❌ 发送视频超时（网络拥堵），请稍后再次尝试发送电影名。")
+    else:
+        await update.message.reply_text("❌ 没找到这个电影，请检查名字是否正确。")
 
 def start_bot():
     application = Application.builder().token(BOT_TOKEN).build()
