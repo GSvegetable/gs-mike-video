@@ -22,39 +22,19 @@ def run_flask():
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# ================= 全新权限校验 =================
-async def check_chat_permission(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    chat = update.effective_chat
-    user_id = update.effective_user.id
-
-    # 1. 私聊：只有开发者（你）能通过
-    if chat.type == "private":
-        if user_id in ADMIN_IDS:
-            return True
-        await update.message.reply_text("⚠️ 机器人未开放私聊功能。如需使用，请将机器人拉入你所在的群组。")
+# ================= 核心逻辑：彻底切断群组功能 =================
+async def check_private_only(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    # 如果被拉进了群，机器人直接“装死”，什么消息都不发，直接拦截
+    if update.effective_chat.type != "private":
         return False
-
-    # 2. 群聊：必须你（7857605443）在这个群是管理员
-    is_dev_admin = False
-    try:
-        for dev_id in ADMIN_IDS:
-            member = await context.bot.get_chat_member(chat_id=chat.id, user_id=dev_id)
-            if member.status in ['creator', 'administrator']:
-                is_dev_admin = True
-                break
-    except Exception:
-        # 如果连你的账号都查不到（说明你被踢了），直接返回无权限
-        is_dev_admin = False
-
-    if not is_dev_admin:
-        await update.message.reply_text("❌ 该群组无权限。请确保开发者账号在此群组中是管理员。")
-        return False
-
+    
+    # 经过上面这关，说明是私聊
     return True
 
 # ================= 机器人核心功能 =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_chat_permission(update, context):
+    # 群聊直接装死
+    if not await check_private_only(update, context):
         return
 
     args = context.args
@@ -64,23 +44,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if file_id:
             await update.message.reply_text("📹 正在为您发送视频...")
             try:
-                # 加入 60 秒超时限制，防止卡半小时
+                # 添加 60 秒超时，防止卡死
                 await asyncio.wait_for(
-                    context.bot.send_video(chat_id=update.effective_chat.id, video=file_id),
+                    context.bot.send_video(chat_id=update.effective_chat.id, video=file_id, supports_streaming=True),
                     timeout=60.0
                 )
             except asyncio.TimeoutError:
                 await update.message.reply_text("❌ 发送视频超时（网络拥堵），请稍后再次尝试发送电影名。")
             return
-    await update.message.reply_text("你好！我是麦克视频库。发送电影名字即可获取视频。")
+    await update.message.reply_text("你好！我是麦克视频库。私聊发送电影名字即可获取视频。")
 
 async def upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_chat_permission(update, context):
+    # 群聊直接装死
+    if not await check_private_only(update, context):
         return
 
     user_id = update.effective_user.id
+    # 只有你才能上传视频
     if user_id not in ADMIN_IDS:
-        await update.message.reply_text("❌ 您没有权限上传视频。")
+        await update.message.reply_text("❌ 只有开发者拥有上传视频的权限。")
         return
 
     if not context.args:
@@ -92,14 +74,15 @@ async def upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"📤 请发送名为《{title}》的视频文件（请直接发视频）。")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_chat_permission(update, context):
+    # 群聊直接装死
+    if not await check_private_only(update, context):
         return
 
     user_id = update.effective_user.id
     text = update.message.text
     chat_id = update.effective_chat.id
 
-    # 管理员上传/接收视频
+    # 1. 你（开发者）上传视频
     if update.message.video and 'pending_upload' in context.user_data:
         title = context.user_data.pop('pending_upload')
         file_id = update.message.video.file_id
@@ -112,13 +95,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # 普通用户搜索视频（只要你有权限，群里任何人都可以搜）
+    # 2. 任何人私聊搜索视频（只要你的库里有，谁都能搜）
     file_id = get_video_by_title(text)
     if file_id:
         await update.message.reply_text("📹 正在为您发送视频...")
         try:
+            # 必须加上 supports_streaming=True，否则部分客户端可能无法点开预览
             await asyncio.wait_for(
-                context.bot.send_video(chat_id=chat_id, video=file_id),
+                context.bot.send_video(chat_id=chat_id, video=file_id, supports_streaming=True),
                 timeout=60.0
             )
         except asyncio.TimeoutError:
