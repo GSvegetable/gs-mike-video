@@ -1,17 +1,10 @@
 import os
 import psycopg2
-from psycopg2 import pool
 
-# 从 Railway 的环境变量读取数据库连接串
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-# 建立一个简单的连接池
-db_pool = None
-if DATABASE_URL:
-    db_pool = psycopg2.pool.SimpleConnectionPool(1, 10, dsn=DATABASE_URL)
-
 def get_db_connection():
-    return db_pool.getconn() if db_pool else psycopg2.connect(DATABASE_URL)
+    return psycopg2.connect(DATABASE_URL)
 
 def init_db():
     conn = get_db_connection()
@@ -30,7 +23,6 @@ def init_db():
 def add_video(title, file_id):
     conn = get_db_connection()
     cur = conn.cursor()
-    # 如果视频名字重复，则更新文件ID（覆盖）
     cur.execute("""
         INSERT INTO videos (title, file_id) VALUES (%s, %s)
         ON CONFLICT (title) DO UPDATE SET file_id = excluded.file_id
